@@ -108,10 +108,12 @@ WARN_RED = (239, 68, 68)
 # to the screen. Width is still capped so it never dominates a wide desktop.
 PANEL_REFERENCE_HEIGHT = 1080
 PANEL_BASE_WIDTH = 500
-PANEL_SCALE_MIN = 0.9
+# Panel width is always PANEL_BASE_WIDTH * scale, so these bounds are expressed
+# through the scale rather than clamped separately - clamping width on its own
+# lets the fonts and their container disagree.
+PANEL_SCALE_MIN = 0.45
 PANEL_SCALE_MAX = 1.45
 PANEL_WIDTH_FRACTION = 0.32
-PANEL_WIDTH_MIN = 420
 PANEL_WIDTH_MAX = 700
 PANEL_MARGIN = 28
 PANEL_PADDING = 22

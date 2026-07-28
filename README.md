@@ -120,7 +120,7 @@ contact header sent to the API.
 
 ## How it behaves
 
-- **Two API requests per cycle** against a 5-request/10-second limit. The planet
+- **Two API requests per cycle** (2 requests every 5 minutes) against a 5-request/10-second limit. The planet
   name list is fetched at most weekly, and only when a Major Order is active.
 - **Rates need warm-up.** Expect `—` for the first 10-15 minutes; that is
   deliberate, rather than showing a fabricated `0.00`.

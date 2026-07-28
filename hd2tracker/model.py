@@ -113,6 +113,19 @@ class MajorOrder:
     decoded: bool = True
 
     @property
+    def headline(self) -> str:
+        """The line to show under the MAJOR ORDER label.
+
+        The API frequently returns a literal "MAJOR ORDER" title, which would
+        just repeat the label; in that case the briefing carries the actual
+        instruction and is used instead.
+        """
+        title = (self.title or "").strip()
+        if title and title.upper() != "MAJOR ORDER":
+            return title
+        return (self.briefing or "").strip() or title or "MAJOR ORDER"
+
+    @property
     def completed_count(self) -> int:
         return sum(1 for task in self.tasks if task.complete)
 
@@ -341,48 +354,70 @@ def choose_background_planet(
 # --------------------------------------------------------------------------- major order
 
 
+def _task_slots(task: dict) -> tuple[list[int], list[int]]:
+    values = [int(v) for v in task.get("values") or [] if isinstance(v, (int, float))]
+    value_types = [int(v) for v in task.get("valueTypes") or [] if isinstance(v, (int, float))]
+    return values, value_types
+
+
+def _slot(values: list[int], value_types: list[int], wanted: int) -> int | None:
+    """Read the value tagged with ``wanted``. Tags line up with values by index."""
+    if wanted not in value_types:
+        return None
+    position = value_types.index(wanted)
+    return values[position] if position < len(values) else None
+
+
+# The planet index is tagged 12; 11 is kept as a fallback because the tagging is
+# not formally documented. A candidate is only accepted if it names a real planet.
+PLANET_SLOT_TAGS = (12, 11)
+AMOUNT_SLOT_TAG = 3
+
+
+def _task_planet(task: dict, planet_names: dict[int, str]) -> str | None:
+    values, value_types = _task_slots(task)
+    for tag in PLANET_SLOT_TAGS:
+        index = _slot(values, value_types, tag)
+        if index is not None:
+            name = planet_names.get(index)
+            if name:
+                return name
+    return None
+
+
 def _decode_task_goal(task: dict) -> int:
     """Best-effort goal extraction.
 
-    The API itself documents ``values`` and ``valueTypes`` as "purpose unknown",
-    so this is reverse-engineered and deliberately conservative. Binary planet
-    objectives need a goal of 1; counting objectives carry the target in the slot
-    tagged 3 (amount), sometimes 12.
+    The API documents ``values`` and ``valueTypes`` as "purpose unknown", so this
+    is reverse-engineered and deliberately conservative. Binary planet objectives
+    need a goal of 1; counting objectives carry the target in the slot tagged 3.
     """
     task_type = task.get("type")
-    values = [int(v) for v in task.get("values") or [] if isinstance(v, (int, float))]
-    value_types = [int(v) for v in task.get("valueTypes") or [] if isinstance(v, (int, float))]
+    values, value_types = _task_slots(task)
 
     # Liberate / hold a specific planet: succeed-or-not.
     if task_type in (11, 13):
         return 1
 
-    for wanted in (3, 12):
-        if wanted in value_types:
-            position = value_types.index(wanted)
-            if position < len(values) and values[position] > 0:
-                return values[position]
+    amount = _slot(values, value_types, AMOUNT_SLOT_TAG)
+    if amount is not None and amount > 0:
+        return amount
 
-    positive = [v for v in values if v > 0]
-    return max(positive) if positive else 1
+    # Fall back to the largest value, ignoring slots that hold a planet index -
+    # mistaking one for a target would produce a nonsense goal.
+    planet_positions = {value_types.index(tag) for tag in PLANET_SLOT_TAGS if tag in value_types}
+    candidates = [v for i, v in enumerate(values) if v > 0 and i not in planet_positions]
+    return max(candidates) if candidates else 1
 
 
 def _decode_task_label(task: dict, planet_names: dict[int, str]) -> str:
     task_type = task.get("type")
-    values = [int(v) for v in task.get("values") or [] if isinstance(v, (int, float))]
-    value_types = [int(v) for v in task.get("valueTypes") or [] if isinstance(v, (int, float))]
+    values, value_types = _task_slots(task)
 
-    planet_name = None
-    if 11 in value_types:
-        position = value_types.index(11)
-        if position < len(values):
-            planet_name = planet_names.get(values[position])
+    planet_name = _task_planet(task, planet_names)
 
-    faction_name = None
-    if 1 in value_types:
-        position = value_types.index(1)
-        if position < len(values):
-            faction_name = FACTION_IDS.get(values[position])
+    faction_id = _slot(values, value_types, 1)
+    faction_name = FACTION_IDS.get(faction_id) if faction_id is not None else None
 
     goal = _decode_task_goal(task)
 

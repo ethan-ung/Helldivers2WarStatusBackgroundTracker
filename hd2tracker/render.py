@@ -69,21 +69,65 @@ def _fit(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max
 # --------------------------------------------------------------------------- primitives
 
 
-def _panel_metrics(size: tuple[int, int]) -> tuple[int, float]:
-    """Panel width and the type scale that goes with it.
+def _content_height(cards: list[PlanetCard], has_major_order: bool, scale: float) -> int:
+    """Total height the panel contents need at a given scale."""
+    height = int(60 * scale)  # header
+    if has_major_order:
+        height += int(90 * scale) + int(config.CARD_GAP * scale)
+    for card in cards:
+        height += _card_height(card, scale) + int(config.CARD_GAP * scale)
+    return height + int(14 * scale)  # footer line
 
-    Scale follows display height so text stays legible on a tall screen; width is
-    then derived from that scale and clamped against the display width so the
-    panel cannot swallow a narrow desktop.
+
+def _layout(
+    cards: list[PlanetCard], has_major_order: bool, size: tuple[int, int]
+) -> tuple[int, float, list[PlanetCard]]:
+    """Resolve panel width, type scale and how many cards actually fit.
+
+    Scale is the single source of truth - panel width is always derived from it,
+    so the two can never disagree and leave text overflowing its container. It
+    starts from display height (the panel is vertical, so height is what governs
+    legibility) and is then held down by whichever of these binds first:
+
+    * the share of display width the panel may occupy
+    * the absolute maximum panel width
+    * the absolute maximum scale
+
+    Whatever survives is shrunk further until the contents fit vertically, and
+    only if that bottoms out at the scale floor do cards get dropped.
     """
     width, height = size
-    scale = height / config.PANEL_REFERENCE_HEIGHT
-    scale = max(config.PANEL_SCALE_MIN, min(config.PANEL_SCALE_MAX, scale))
 
-    panel_width = int(config.PANEL_BASE_WIDTH * scale)
-    panel_width = min(panel_width, int(width * config.PANEL_WIDTH_FRACTION))
-    panel_width = max(config.PANEL_WIDTH_MIN, min(config.PANEL_WIDTH_MAX, panel_width))
-    return panel_width, scale
+    scale = height / config.PANEL_REFERENCE_HEIGHT
+    scale = min(
+        scale,
+        (width * config.PANEL_WIDTH_FRACTION) / config.PANEL_BASE_WIDTH,
+        config.PANEL_WIDTH_MAX / config.PANEL_BASE_WIDTH,
+        config.PANEL_SCALE_MAX,
+    )
+    scale = max(scale, config.PANEL_SCALE_MIN)
+
+    shown = list(cards)
+    for _ in range(12):
+        padding = int(config.PANEL_PADDING * scale)
+        margin = int(config.PANEL_MARGIN * scale)
+        available = height - margin * 2
+        needed = _content_height(shown, has_major_order, scale) + padding * 2
+        if needed <= available or available <= 0:
+            break
+
+        shrunk = max(config.PANEL_SCALE_MIN, scale * (available / needed))
+        if shrunk < scale - 1e-6:
+            scale = shrunk
+            continue
+        # Already as small as we allow: drop the least busy planet rather than
+        # let cards spill past the bottom of the panel.
+        if len(shown) > 1:
+            shown.pop()
+            continue
+        break
+
+    return max(1, round(config.PANEL_BASE_WIDTH * scale)), scale, shown
 
 
 def _smoothstep(t: float) -> float:
@@ -235,7 +279,7 @@ def _draw_major_order(
 
     draw.text(
         (inner_x, cursor),
-        _fit(draw, order.title.upper(), title_font, inner_width),
+        _fit(draw, order.headline.upper(), title_font, inner_width),
         font=title_font,
         fill=config.TEXT_PRIMARY + (255,),
     )
@@ -422,7 +466,8 @@ def _draw_card(
 
 def render_monitor(snapshot: WarSnapshot, size: tuple[int, int], now: datetime) -> Image.Image:
     width, height = size
-    panel_width, scale = _panel_metrics(size)
+    cards = snapshot.planets[: config.PLANET_COUNT]
+    panel_width, scale, cards = _layout(cards, snapshot.major_order is not None, size)
 
     background_planet = snapshot.background_planet
     biome_name = background_planet.biome_name if background_planet else ""
@@ -438,16 +483,8 @@ def render_monitor(snapshot: WarSnapshot, size: tuple[int, int], now: datetime) 
     content_x = panel_x + padding
     content_width = panel_width - padding * 2
 
-    cards = snapshot.planets[: config.PLANET_COUNT]
-
     # Measure first so the panel can be vertically centred.
-    content_height = int(60 * scale)
-    if snapshot.major_order is not None:
-        content_height += int(90 * scale) + int(config.CARD_GAP * scale)
-    for card in cards:
-        content_height += _card_height(card, scale) + int(config.CARD_GAP * scale)
-    content_height += int(14 * scale)  # footer line
-
+    content_height = _content_height(cards, snapshot.major_order is not None, scale)
     panel_height = min(height - margin * 2, content_height + padding * 2)
     panel_y = (height - panel_height) // 2
 

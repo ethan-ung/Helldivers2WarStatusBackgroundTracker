@@ -347,7 +347,7 @@ def describe(snapshot: WarSnapshot) -> str:
     else:
         order = snapshot.major_order
         lines.append(
-            f"Major Order : {order.title} — {order.completed_count}/{order.total_count} objectives"
+            f"Major Order : {order.headline} — {order.completed_count}/{order.total_count} objectives"
             f" — {order.time_remaining(now) or 'no expiry'}"
         )
         for task in order.tasks:
