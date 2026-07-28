@@ -115,8 +115,31 @@ Everything tunable lives in `hd2tracker/config.py`:
 | `ORDER_HYSTERESIS` | `False` | set `True` to stabilise card order too |
 | `STALE_AFTER_MINUTES` | 20 | when a cached render gets a STALE marker |
 
-Set `HD2_STATE_DIR` to relocate state, and `HD2_API_CONTACT` to change the
-contact header sent to the API.
+Set `HD2_STATE_DIR` to relocate state.
+
+### Identifying yourself to the API
+
+The API asks clients to identify themselves through `X-Super-Client` and
+`X-Super-Contact`, so its maintainers can reach whoever is running a client that
+misbehaves. Anything reachable works — an email address, a GitHub handle, a
+repository URL.
+
+So no personal address ends up in version control, the contact is resolved at
+runtime in this order:
+
+1. the `HD2_API_CONTACT` environment variable
+2. `contact.local` in the repository root, which is git-ignored
+3. a neutral placeholder
+
+To set it, copy the example and edit it:
+
+```bash
+cp contact.local.example contact.local
+```
+
+Put your contact on the first non-comment line. With neither the file nor the
+variable set the tracker still runs and still sends the header, just with a
+placeholder instead of a way to reach you.
 
 ## How it behaves
 

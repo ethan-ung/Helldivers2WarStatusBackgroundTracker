@@ -32,8 +32,42 @@ LOG_BACKUP_COUNT = 2
 
 API_BASE = os.environ.get("HD2_API_BASE", "https://api.helldivers2.dev")
 API_CLIENT_NAME = "Helldivers2WarStatusBackgroundTracker"
-API_CONTACT = os.environ.get("HD2_API_CONTACT", "you@example.com")
 API_LANGUAGE = "en-US"
+
+# The API asks clients to identify themselves so its maintainers can reach
+# whoever is running a misbehaving client. Anything reachable works: an email
+# address, a GitHub handle, a repository URL.
+#
+# It is resolved at runtime so no personal address has to live in version
+# control:
+#
+#   1. the HD2_API_CONTACT environment variable
+#   2. contact.local in the repository root, which is git-ignored
+#   3. a neutral placeholder
+#
+# See contact.local.example.
+CONTACT_FILE = REPO_ROOT / "contact.local"
+UNCONFIGURED_CONTACT = f"{API_CLIENT_NAME} (contact not configured)"
+
+
+def _resolve_api_contact() -> str:
+    from_env = os.environ.get("HD2_API_CONTACT", "").strip()
+    if from_env:
+        return from_env
+
+    try:
+        content = CONTACT_FILE.read_text(encoding="utf-8-sig")
+    except OSError:
+        return UNCONFIGURED_CONTACT
+
+    for line in content.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            return line
+    return UNCONFIGURED_CONTACT
+
+
+API_CONTACT = _resolve_api_contact()
 
 HTTP_TIMEOUT = 15.0
 HTTP_RETRIES = 3

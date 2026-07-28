@@ -14,9 +14,12 @@ preview/
 *.tmp
 *.tmp.png
 
-# Biome art is tracked. Fonts are not - they are usually separately licensed.
+# Biome art is tracked. Fonts are not.
 assets/fonts/*
 !assets/fonts/.gitkeep
+
+# Your API contact string. Never commit this - see contact.local.example.
+contact.local
 
 .vscode/
 .idea/

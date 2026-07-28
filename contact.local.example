@@ -1,0 +1,14 @@
+# Copy this file to "contact.local" and put your contact on the first
+# non-comment line. That file is git-ignored, so it never leaves your machine.
+#
+# The community API asks clients to identify themselves through the
+# X-Super-Contact header, so its maintainers have a way to reach whoever is
+# running a client that misbehaves. Anything reachable works:
+#
+#   you@example.com
+#   github.com/your-handle
+#   https://github.com/your-handle/your-repo
+#
+# HD2_API_CONTACT in the environment takes priority over this file. With
+# neither set the tracker still runs and still sends the header, just with a
+# placeholder instead of a way to reach you.
