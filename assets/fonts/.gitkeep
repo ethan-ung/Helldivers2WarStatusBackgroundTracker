@@ -1,0 +1,2 @@
+# Drop a .ttf or .otf here to override the display typeface.
+# The first file found is used; otherwise Bahnschrift is picked from C:\Windows\Fonts.

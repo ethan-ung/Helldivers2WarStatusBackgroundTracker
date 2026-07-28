@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Runtime state: rendered wallpapers, history, logs, biome cache.
+# Git-ignored files survive branch switches, so wallpaper paths stay valid.
+.state/
+
+# Local previews and scratch renders
+preview/
+*.tmp
+*.tmp.png
+
+# Biome art is tracked. Fonts are not - they are usually separately licensed.
+assets/fonts/*
+!assets/fonts/.gitkeep
+
+.vscode/
+.idea/
