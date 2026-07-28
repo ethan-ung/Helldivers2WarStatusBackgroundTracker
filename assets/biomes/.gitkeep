@@ -1,0 +1,8 @@
+# Drop biome images here, named after the biome, to replace biome images.
+#
+#   Desert Dunes.jpg
+#   Icy Glaciers.png
+#   Volcanic Jungle.webp
+#
+# Matching ignores case, spaces, underscores and hyphens.
+# The 25 biome names are the keys of PALETTES in hd2tracker/biomes.py.
