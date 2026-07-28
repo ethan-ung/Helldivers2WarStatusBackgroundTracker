@@ -49,6 +49,20 @@ namespace HD2Wallpaper {
     }
 
     public static class Api {
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+
+        // PER_MONITOR_AWARE_V2. Without this the monitor rectangles come back in
+        // virtualised coordinates on a scaled display, and the wallpaper would be
+        // rendered below native resolution and then upscaled by Windows.
+        private static readonly IntPtr PerMonitorAwareV2 = new IntPtr(-4);
+
+        public static void MakeDpiAware() {
+            try { SetProcessDpiAwarenessContext(PerMonitorAwareV2); }
+            catch (EntryPointNotFoundException) { /* pre-1703 Windows */ }
+            catch (DllNotFoundException) { }
+        }
+
         public static IDesktopWallpaper Create() {
             Type t = Type.GetTypeFromCLSID(new Guid("C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD"));
             return (IDesktopWallpaper)Activator.CreateInstance(t);
@@ -76,6 +90,9 @@ namespace HD2Wallpaper {
 if (-not ('HD2Wallpaper.Api' -as [type])) {
     Add-Type -TypeDefinition $source -Language CSharp
 }
+
+# Must happen before any monitor geometry is read.
+[HD2Wallpaper.Api]::MakeDpiAware()
 
 function Get-Monitors {
     $count = [HD2Wallpaper.Api]::Count()
