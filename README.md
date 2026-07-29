@@ -149,8 +149,6 @@ Put your contact on the first non-comment line. With neither the file nor the va
   response and ignores `limit`/`page`/`count`, while new dispatches appear only
   two or three times a day — so polling it every cycle would be wasteful. All
   requests ask for gzip, which roughly halves it.
-- **The panel respects the work area**, so it stops above the taskbar. The
-  wallpaper image is still the full monitor size and sits behind it.
 - **Rates need warm-up.** Expect `—` for the first 10-15 minutes; that is
   deliberate, rather than showing a fabricated `0.00`.
 - **The clock comes from the HTTP `Date` header.** The `now` field on
