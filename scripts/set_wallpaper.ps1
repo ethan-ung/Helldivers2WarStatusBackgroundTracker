@@ -33,6 +33,18 @@ namespace HD2Wallpaper {
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X, Y; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct MONITORINFOEX {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string szDevice;
+    }
+
     [ComImport, Guid("B92B56A9-8B55-4E14-9A89-0199BBB6F93B"),
      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IDesktopWallpaper {
@@ -78,6 +90,35 @@ namespace HD2Wallpaper {
             return new int[] { r.Left, r.Top, r.Right, r.Bottom };
         }
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFOEX info);
+
+        // How much of each edge the shell reserves - the taskbar, mainly. The
+        // wallpaper still covers the whole monitor; the panel is laid out inside
+        // what is left so it does not disappear behind the taskbar.
+        // Returns { left, top, right, bottom }, all zero if anything goes wrong.
+        public static int[] WorkAreaInsets(int[] rect) {
+            int[] none = new int[] { 0, 0, 0, 0 };
+            try {
+                POINT pt = new POINT();
+                pt.X = rect[0] + (rect[2] - rect[0]) / 2;
+                pt.Y = rect[1] + (rect[3] - rect[1]) / 2;
+                IntPtr h = MonitorFromPoint(pt, 2); // MONITOR_DEFAULTTONEAREST
+                MONITORINFOEX mi = new MONITORINFOEX();
+                mi.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+                if (!GetMonitorInfo(h, ref mi)) return none;
+                return new int[] {
+                    mi.rcWork.Left - mi.rcMonitor.Left,
+                    mi.rcWork.Top - mi.rcMonitor.Top,
+                    mi.rcMonitor.Right - mi.rcWork.Right,
+                    mi.rcMonitor.Bottom - mi.rcWork.Bottom
+                };
+            } catch { return none; }
+        }
+
         public static void Assign(string id, string path) { Create().SetWallpaper(id, path); }
 
         public static void AssignAll(string path) { Create().SetWallpaper(null, path); }
@@ -101,13 +142,18 @@ function Get-Monitors {
         $id = [HD2Wallpaper.Api]::IdAt([uint32]$i)
         if ([string]::IsNullOrEmpty($id)) { continue }
         try { $rect = [HD2Wallpaper.Api]::RectAt($id) } catch { continue }
+        $inset = [HD2Wallpaper.Api]::WorkAreaInsets($rect)
         $null = $list.Add([pscustomobject]@{
-            index  = $i
-            id     = $id
-            left   = $rect[0]
-            top    = $rect[1]
-            width  = $rect[2] - $rect[0]
-            height = $rect[3] - $rect[1]
+            index       = $i
+            id          = $id
+            left        = $rect[0]
+            top         = $rect[1]
+            width       = $rect[2] - $rect[0]
+            height      = $rect[3] - $rect[1]
+            insetLeft   = $inset[0]
+            insetTop    = $inset[1]
+            insetRight  = $inset[2]
+            insetBottom = $inset[3]
         })
     }
     return $list

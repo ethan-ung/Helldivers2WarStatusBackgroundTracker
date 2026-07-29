@@ -13,6 +13,7 @@ That is 2 requests per cycle against a 5-request/10-second budget.
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import time
@@ -41,6 +42,9 @@ class ApiResponse:
 def _headers() -> dict[str, str]:
     return {
         "Accept": "application/json",
+        # The dispatch feed is 372 KB uncompressed and cannot be limited, so
+        # compression is worth asking for on every endpoint.
+        "Accept-Encoding": "gzip",
         "Accept-Language": config.API_LANGUAGE,
         "X-Super-Client": config.API_CLIENT_NAME,
         "X-Super-Contact": config.API_CONTACT,
@@ -80,7 +84,10 @@ def _get(path: str) -> ApiResponse:
             time.sleep(delay)
         try:
             with urllib.request.urlopen(request, timeout=config.HTTP_TIMEOUT) as response:
-                body = response.read().decode("utf-8")
+                payload = response.read()
+                if (response.headers.get("Content-Encoding") or "").lower() == "gzip":
+                    payload = gzip.decompress(payload)
+                body = payload.decode("utf-8")
                 server_time = _parse_server_time(response.headers.get("Date"))
                 remaining = response.headers.get("X-RateLimit-Remaining")
                 if remaining is not None:
@@ -150,6 +157,19 @@ def fetch_planet_names(max_age_days: int = 7) -> dict[int, str]:
             log.debug("could not persist planet name cache: %s", exc)
 
     return names
+
+
+def fetch_dispatches() -> list[dict]:
+    """The High Command dispatch feed.
+
+    The endpoint returns every dispatch ever published - 372 KB, ~972 items -
+    and ignores ``limit``, ``page``/``pageSize`` and ``count``. Its ``etag`` is a
+    per-request timestamp rather than a content hash, so conditional requests do
+    not help either. gzip roughly halves it; the caller throttles how often this
+    runs.
+    """
+    response = _get("/api/v1/dispatches")
+    return response.payload if isinstance(response.payload, list) else []
 
 
 def fetch_war_state() -> tuple[list[dict], list[dict], datetime]:

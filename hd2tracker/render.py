@@ -21,7 +21,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from . import biomes, config
 from .history import format_rate
-from .model import MajorOrder, MajorOrderTask, PlanetCard, WarSnapshot
+from .model import Dispatch, MajorOrder, MajorOrderTask, PlanetCard, WarSnapshot
 
 log = logging.getLogger(__name__)
 
@@ -101,11 +101,15 @@ def _wrap(
 # --------------------------------------------------------------------------- primitives
 
 
-def _content_height(cards: list[PlanetCard], mo_height: int, scale: float, card_gap: int) -> int:
+def _content_height(
+    cards: list[PlanetCard], mo_height: int, dispatch_height: int, scale: float, card_gap: int
+) -> int:
     """Total height the panel contents need at a given scale."""
     height = int(60 * scale)  # header
     if mo_height:
         height += mo_height + card_gap
+    if dispatch_height:
+        height += dispatch_height + card_gap
     for card in cards:
         height += _card_height(card, scale) + card_gap
     return height + int(14 * scale)  # footer line
@@ -118,9 +122,16 @@ class PanelLayout:
     cards: list[PlanetCard]
     card_gap: int
     major_order: MajorOrderLayout | None
+    dispatch: DispatchLayout | None = None
 
 
-def _layout(cards: list[PlanetCard], order: MajorOrder | None, size: tuple[int, int]) -> PanelLayout:
+def _layout(
+    cards: list[PlanetCard],
+    order: MajorOrder | None,
+    dispatch: Dispatch | None,
+    size: tuple[int, int],
+    insets: tuple[int, int, int, int] = (0, 0, 0, 0),
+) -> PanelLayout:
     """Resolve panel width, type scale, how many cards fit and the gap between them.
 
     Scale is the single source of truth - panel width is always derived from it,
@@ -140,11 +151,14 @@ def _layout(cards: list[PlanetCard], order: MajorOrder | None, size: tuple[int, 
     against the current panel width on every iteration.
     """
     width, height = size
+    inset_left, inset_top, inset_right, inset_bottom = insets
+    usable_width = max(1, width - inset_left - inset_right)
+    usable_height = max(1, height - inset_top - inset_bottom)
 
-    scale = height / config.PANEL_REFERENCE_HEIGHT
+    scale = usable_height / config.PANEL_REFERENCE_HEIGHT
     scale = min(
         scale,
-        (width * config.PANEL_WIDTH_FRACTION) / config.PANEL_BASE_WIDTH,
+        (usable_width * config.PANEL_WIDTH_FRACTION) / config.PANEL_BASE_WIDTH,
         config.PANEL_WIDTH_MAX / config.PANEL_BASE_WIDTH,
         config.PANEL_SCALE_MAX,
     )
@@ -155,6 +169,7 @@ def _layout(cards: list[PlanetCard], order: MajorOrder | None, size: tuple[int, 
 
     shown = list(cards)
     mo_layout: MajorOrderLayout | None = None
+    dispatch_layout: DispatchLayout | None = None
     card_gap = int(config.CARD_GAP * scale)
 
     for _ in range(12):
@@ -165,15 +180,17 @@ def _layout(cards: list[PlanetCard], order: MajorOrder | None, size: tuple[int, 
 
         mo_layout = _major_order_layout(probe, order, content_width, scale) if order else None
         mo_height = mo_layout.height if mo_layout else 0
+        dispatch_layout = _dispatch_layout(probe, dispatch, content_width, scale) if dispatch else None
+        dispatch_height = dispatch_layout.height if dispatch_layout else 0
 
         base_gap = int(config.CARD_GAP * scale)
-        available = height - margin * 2
-        needed = _content_height(shown, mo_height, scale, base_gap) + padding * 2
+        available = usable_height - margin * 2
+        needed = _content_height(shown, mo_height, dispatch_height, scale, base_gap) + padding * 2
 
         if needed <= available or available <= 0:
             # The panel is full height, so spread the slack across the gaps
             # instead of leaving a void at the bottom.
-            slots = len(shown) + (1 if mo_height else 0)
+            slots = len(shown) + (1 if mo_height else 0) + (1 if dispatch_height else 0)
             slack = max(0, available - needed)
             card_gap = base_gap
             if slots and slack:
@@ -198,6 +215,7 @@ def _layout(cards: list[PlanetCard], order: MajorOrder | None, size: tuple[int, 
         cards=shown,
         card_gap=card_gap,
         major_order=mo_layout,
+        dispatch=dispatch_layout,
     )
 
 
@@ -506,6 +524,102 @@ def _draw_major_order(
     return y + layout.height
 
 
+# Row heights for the dispatch block, in unscaled units.
+_DISPATCH_LABEL_H = 16
+_DISPATCH_HEADLINE_H = 18
+_DISPATCH_BODY_H = 15
+_DISPATCH_BODY_LEAD = 4
+
+
+@dataclass
+class DispatchLayout:
+    headline: list[str] = field(default_factory=list)
+    body: list[str] = field(default_factory=list)
+    height: int = 0
+
+
+def _dispatch_layout(
+    draw: ImageDraw.ImageDraw, dispatch: Dispatch, width: int, scale: float
+) -> DispatchLayout:
+    title_font = _load_font("display", int(15 * scale))
+    body_font = _load_font("body", int(12 * scale))
+
+    pad = int(config.CARD_PADDING * scale)
+    inner_width = width - pad * 2
+
+    layout = DispatchLayout()
+    if dispatch.headline:
+        layout.headline = _wrap(draw, dispatch.headline.upper(), title_font, inner_width, max_lines=2)
+    layout.body = _wrap(
+        draw,
+        dispatch.body.replace("\n", " "),
+        body_font,
+        inner_width,
+        max_lines=config.DISPATCH_BODY_LINES,
+    )
+
+    height = pad * 2 + int(_DISPATCH_LABEL_H * scale)
+    height += len(layout.headline) * int(_DISPATCH_HEADLINE_H * scale)
+    if layout.body:
+        height += int(_DISPATCH_BODY_LEAD * scale) + len(layout.body) * int(_DISPATCH_BODY_H * scale)
+
+    layout.height = height
+    return layout
+
+
+def _draw_dispatch(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    width: int,
+    dispatch: Dispatch,
+    layout: DispatchLayout,
+    now: datetime,
+    scale: float,
+) -> int:
+    label_font = _load_font("body", int(11 * scale))
+    title_font = _load_font("display", int(15 * scale))
+    body_font = _load_font("body", int(12 * scale))
+
+    pad = int(config.CARD_PADDING * scale)
+    inner_x = x + pad
+    inner_width = width - pad * 2
+    cursor = y + pad
+
+    draw.rectangle(
+        (x, y, x + width, y + layout.height),
+        fill=None,
+        outline=config.DISPATCH_ACCENT + (70,),
+        width=1,
+    )
+
+    draw.text(
+        (inner_x, cursor), "HIGH COMMAND DISPATCH", font=label_font, fill=config.DISPATCH_ACCENT + (255,)
+    )
+    age = dispatch.age(now)
+    if age:
+        age_width = draw.textlength(age, font=label_font)
+        draw.text(
+            (inner_x + inner_width - age_width, cursor),
+            age,
+            font=label_font,
+            fill=config.TEXT_MUTED + (255,),
+        )
+    cursor += int(_DISPATCH_LABEL_H * scale)
+
+    for line in layout.headline:
+        draw.text((inner_x, cursor), line, font=title_font, fill=config.TEXT_PRIMARY + (255,))
+        cursor += int(_DISPATCH_HEADLINE_H * scale)
+
+    if layout.body:
+        cursor += int(_DISPATCH_BODY_LEAD * scale)
+        for line in layout.body:
+            draw.text((inner_x, cursor), line, font=body_font, fill=config.TEXT_SECONDARY + (255,))
+            cursor += int(_DISPATCH_BODY_H * scale)
+
+    return y + layout.height
+
+
 def _card_height(card: PlanetCard, scale: float) -> int:
     height = int(config.CARD_PADDING * scale) * 2
     height += int(21 * scale)  # name row
@@ -651,9 +765,27 @@ def _draw_card(
 # --------------------------------------------------------------------------- entry point
 
 
-def render_monitor(snapshot: WarSnapshot, size: tuple[int, int], now: datetime) -> Image.Image:
+def render_monitor(
+    snapshot: WarSnapshot,
+    size: tuple[int, int],
+    now: datetime,
+    insets: tuple[int, int, int, int] = (0, 0, 0, 0),
+) -> Image.Image:
+    """Render one monitor.
+
+    ``insets`` are the edges the shell reserves - the taskbar, mainly. The image
+    is always the full monitor size, because the wallpaper sits behind the
+    taskbar; only the panel is kept inside the work area.
+    """
     width, height = size
-    layout = _layout(snapshot.planets[: config.PLANET_COUNT], snapshot.major_order, size)
+    inset_left, inset_top, inset_right, inset_bottom = insets
+    layout = _layout(
+        snapshot.planets[: config.PLANET_COUNT],
+        snapshot.major_order,
+        snapshot.dispatch,
+        size,
+        insets,
+    )
     panel_width, scale, cards, card_gap = (
         layout.panel_width,
         layout.scale,
@@ -671,14 +803,15 @@ def render_monitor(snapshot: WarSnapshot, size: tuple[int, int], now: datetime) 
 
     padding = int(config.PANEL_PADDING * scale)
     margin = int(config.PANEL_MARGIN * scale)
-    panel_x = width - margin - panel_width
+    panel_x = width - inset_right - margin - panel_width
     content_x = panel_x + padding
     content_width = panel_width - padding * 2
 
-    # The panel runs the full height of the display; slack is already absorbed
-    # into card_gap, and the footer is pinned to the bottom.
-    panel_y = margin
-    panel_height = max(1, height - margin * 2)
+    # The panel runs the full height of the *work area*, so it stops above the
+    # taskbar rather than disappearing behind it. Slack is already absorbed into
+    # card_gap, and the footer is pinned to the bottom of the panel.
+    panel_y = inset_top + margin
+    panel_height = max(1, height - inset_top - inset_bottom - margin * 2)
 
     draw.rectangle(
         (panel_x, panel_y, panel_x + panel_width, panel_y + panel_height),
@@ -691,7 +824,8 @@ def render_monitor(snapshot: WarSnapshot, size: tuple[int, int], now: datetime) 
     # spreading before the slack is used up. Centre what is left over rather
     # than pooling all of it under the last card.
     mo_height = layout.major_order.height if layout.major_order else 0
-    used = _content_height(cards, mo_height, scale, card_gap) + padding * 2
+    dispatch_height = layout.dispatch.height if layout.dispatch else 0
+    used = _content_height(cards, mo_height, dispatch_height, scale, card_gap) + padding * 2
     cursor = panel_y + padding + max(0, (panel_height - used) // 2)
 
     cursor = _draw_header(draw, content_x, cursor, content_width, snapshot, now, scale)
@@ -704,6 +838,19 @@ def render_monitor(snapshot: WarSnapshot, size: tuple[int, int], now: datetime) 
             content_width,
             snapshot.major_order,
             layout.major_order,
+            now,
+            scale,
+        )
+        cursor += card_gap
+
+    if snapshot.dispatch is not None and layout.dispatch is not None:
+        cursor = _draw_dispatch(
+            draw,
+            content_x,
+            cursor,
+            content_width,
+            snapshot.dispatch,
+            layout.dispatch,
             now,
             scale,
         )
@@ -728,7 +875,10 @@ def render_monitor(snapshot: WarSnapshot, size: tuple[int, int], now: datetime) 
         caption_font = _load_font("body", int(11 * scale))
         caption = f"{background_planet.name} · {background_planet.biome_name.upper()}"
         draw.text(
-            (margin + int(8 * scale), height - margin - int(16 * scale)),
+            (
+                inset_left + margin + int(8 * scale),
+                height - inset_bottom - margin - int(16 * scale),
+            ),
             caption,
             font=caption_font,
             fill=(255, 255, 255, 90),

@@ -21,6 +21,7 @@ STATE_DIR = Path(os.environ.get("HD2_STATE_DIR", REPO_ROOT / ".state"))
 HISTORY_FILE = STATE_DIR / "history.json"
 SNAPSHOT_FILE = STATE_DIR / "last_snapshot.json"
 BACKUP_FILE = STATE_DIR / "wallpaper_backup.json"
+DISPATCH_CACHE = STATE_DIR / "dispatch.json"
 LOCK_FILE = STATE_DIR / "tracker.lock"
 LOG_FILE = STATE_DIR / "tracker.log"
 BIOME_CACHE_DIR = STATE_DIR / "biome_cache"
@@ -103,6 +104,13 @@ ORDER_HYSTERESIS_MARGIN = 0.05
 # stale once it passes this age.
 STALE_AFTER_MINUTES = 20
 
+# The dispatch feed cannot be filtered server-side and is 372 KB (154 KB gzipped)
+# every time, while new dispatches appear only two or three times a day. Fetching
+# it on its own throttle keeps the cost proportionate; the cached copy is reused
+# by every render in between.
+DISPATCH_REFRESH_MINUTES = 15
+DISPATCH_BODY_LINES = 4
+
 # --------------------------------------------------------------------------- colours
 
 FACTION_COLORS = {
@@ -134,6 +142,10 @@ TEXT_MUTED = (104, 117, 136)
 TRACK_COLOR = (38, 46, 60, 255)
 ACCENT_YELLOW = (250, 204, 21)
 WARN_RED = (239, 68, 68)
+
+# Dispatches read as an official broadcast, so they take Super Earth blue rather
+# than competing with the Major Order's yellow.
+DISPATCH_ACCENT = (59, 130, 246)
 
 # Major Order objective tick boxes, matching the in-game HUD.
 OBJECTIVE_COMPLETE = (74, 222, 128)
