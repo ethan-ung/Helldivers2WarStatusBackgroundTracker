@@ -77,7 +77,7 @@ INTER_REQUEST_DELAY = 0.5
 
 # --------------------------------------------------------------------------- behaviour
 
-PLANET_COUNT = 6
+PLANET_COUNT = 4
 
 # Only consider planets with an active campaign. Planets without a campaign have
 # no meaningful liberation figure, and in practice carry far fewer players.
@@ -135,6 +135,16 @@ TRACK_COLOR = (38, 46, 60, 255)
 ACCENT_YELLOW = (250, 204, 21)
 WARN_RED = (239, 68, 68)
 
+# Major Order objective tick boxes, matching the in-game HUD.
+OBJECTIVE_COMPLETE = (74, 222, 128)
+OBJECTIVE_BOX_EMPTY = (30, 37, 48)
+OBJECTIVE_BOX_BORDER = (72, 86, 105)
+
+# On an enemy-held planet the unfilled part of the bar is that faction's colour.
+# It is drawn dimmed: several planets sit at 0.0% liberated, and a solid block of
+# faction colour at full strength reads as a *full* bar rather than an empty one.
+BAR_REMAINDER_ALPHA = 150
+
 # --------------------------------------------------------------------------- layout
 
 # The panel is vertical, so its size tracks display *height* rather than width -
@@ -152,10 +162,17 @@ PANEL_WIDTH_MAX = 700
 PANEL_MARGIN = 28
 PANEL_PADDING = 22
 CARD_GAP = 10
+# Slack from the full-height panel is absorbed by growing the card gaps, up to
+# this bound; anything beyond it is left at the bottom above the footer.
+CARD_GAP_MAX = 62
 CARD_PADDING = 12
 BAR_HEIGHT = 9
-BAR_RADIUS = 4
-CORNER_RADIUS = 10
+# The in-game HUD is angular, so nothing in the panel is rounded.
+BAR_RADIUS = 0
+CORNER_RADIUS = 0
+# Major Order tick box, a square this many units on a side before scaling.
+CHECKBOX_SIZE = 12
+OBJECTIVE_GAP = 7
 
 # Right-side scrim that darkens the backdrop behind the panel.
 SCRIM_WIDTH_MULTIPLIER = 2.1

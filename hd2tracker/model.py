@@ -87,6 +87,16 @@ class PlanetCard:
         return f"{minutes}m"
 
 
+def _compact(value: int) -> str:
+    """Shorten large counts so they fit beside an objective."""
+    if value >= 1_000_000:
+        text = f"{value / 1_000_000:.1f}M"
+        return text.replace(".0M", "M")
+    if value >= 10_000:
+        return f"{value / 1_000:.0f}K"
+    return f"{value:,}"
+
+
 @dataclass
 class MajorOrderTask:
     label: str
@@ -102,6 +112,18 @@ class MajorOrderTask:
         if self.goal <= 0:
             return 0.0
         return max(0.0, min(1.0, self.current / self.goal))
+
+    @property
+    def display_progress(self) -> str | None:
+        """Plain-text count for a counter objective, ``None`` for a binary one.
+
+        Hold and liberate objectives are succeed-or-not, so their tick box says
+        everything. A counter that runs for a week would otherwise sit as an
+        empty box the whole time, which is why the figure is shown alongside it.
+        """
+        if self.goal <= 1:
+            return None
+        return f"{_compact(self.current)} / {_compact(self.goal)}"
 
 
 @dataclass
@@ -432,6 +454,11 @@ def _decode_task_label(task: dict, planet_names: dict[int, str]) -> str:
         return f"Kill {goal:,} {target}"
     if task_type == 2:
         return f"Extract {goal:,} items"
+    # Unverified: no live order has exercised this type, and the API documents
+    # these fields as "purpose unknown". A wrong guess still reads sensibly, and
+    # anything unrecognised falls through to the generic label below.
+    if task_type == 9:
+        return f"Complete {goal:,} Operations"
     if task_type == 15:
         return "Hold the front line"
     return f"Objective ({goal:,})"
