@@ -21,6 +21,7 @@ STATE_DIR = Path(os.environ.get("HD2_STATE_DIR", REPO_ROOT / ".state"))
 HISTORY_FILE = STATE_DIR / "history.json"
 SNAPSHOT_FILE = STATE_DIR / "last_snapshot.json"
 BACKUP_FILE = STATE_DIR / "wallpaper_backup.json"
+DISPATCH_CACHE = STATE_DIR / "dispatch.json"
 LOCK_FILE = STATE_DIR / "tracker.lock"
 LOG_FILE = STATE_DIR / "tracker.log"
 BIOME_CACHE_DIR = STATE_DIR / "biome_cache"
@@ -77,7 +78,7 @@ INTER_REQUEST_DELAY = 0.5
 
 # --------------------------------------------------------------------------- behaviour
 
-PLANET_COUNT = 6
+PLANET_COUNT = 4
 
 # Only consider planets with an active campaign. Planets without a campaign have
 # no meaningful liberation figure, and in practice carry far fewer players.
@@ -102,6 +103,13 @@ ORDER_HYSTERESIS_MARGIN = 0.05
 # If the API is unreachable, keep re-rendering the last good snapshot but mark it
 # stale once it passes this age.
 STALE_AFTER_MINUTES = 20
+
+# The dispatch feed cannot be filtered server-side and is 372 KB (154 KB gzipped)
+# every time, while new dispatches appear only two or three times a day. Fetching
+# it on its own throttle keeps the cost proportionate; the cached copy is reused
+# by every render in between.
+DISPATCH_REFRESH_MINUTES = 15
+DISPATCH_BODY_LINES = 4
 
 # --------------------------------------------------------------------------- colours
 
@@ -135,6 +143,20 @@ TRACK_COLOR = (38, 46, 60, 255)
 ACCENT_YELLOW = (250, 204, 21)
 WARN_RED = (239, 68, 68)
 
+# Dispatches read as an official broadcast, so they take Super Earth blue rather
+# than competing with the Major Order's yellow.
+DISPATCH_ACCENT = (59, 130, 246)
+
+# Major Order objective tick boxes, matching the in-game HUD.
+OBJECTIVE_COMPLETE = (74, 222, 128)
+OBJECTIVE_BOX_EMPTY = (30, 37, 48)
+OBJECTIVE_BOX_BORDER = (72, 86, 105)
+
+# On an enemy-held planet the unfilled part of the bar is that faction's colour.
+# It is drawn dimmed: several planets sit at 0.0% liberated, and a solid block of
+# faction colour at full strength reads as a *full* bar rather than an empty one.
+BAR_REMAINDER_ALPHA = 150
+
 # --------------------------------------------------------------------------- layout
 
 # The panel is vertical, so its size tracks display *height* rather than width -
@@ -152,10 +174,17 @@ PANEL_WIDTH_MAX = 700
 PANEL_MARGIN = 28
 PANEL_PADDING = 22
 CARD_GAP = 10
+# Slack from the full-height panel is absorbed by growing the card gaps, up to
+# this bound; anything beyond it is left at the bottom above the footer.
+CARD_GAP_MAX = 62
 CARD_PADDING = 12
 BAR_HEIGHT = 9
-BAR_RADIUS = 4
-CORNER_RADIUS = 10
+# The in-game HUD is angular, so nothing in the panel is rounded.
+BAR_RADIUS = 0
+CORNER_RADIUS = 0
+# Major Order tick box, a square this many units on a side before scaling.
+CHECKBOX_SIZE = 12
+OBJECTIVE_GAP = 7
 
 # Right-side scrim that darkens the backdrop behind the panel.
 SCRIM_WIDTH_MULTIPLIER = 2.1

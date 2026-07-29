@@ -15,12 +15,14 @@ from . import api, config, render, wallpaper
 from .history import History
 from .model import (
     CampaignState,
+    Dispatch,
     MajorOrder,
     MajorOrderTask,
     PlanetCard,
     WarSnapshot,
     build_major_order,
     choose_background_planet,
+    latest_dispatch,
     select_planets,
 )
 
@@ -130,6 +132,87 @@ def _card_from_dict(data: dict) -> PlanetCard:
     )
 
 
+def _dispatch_to_dict(dispatch: Dispatch) -> dict:
+    return {
+        "id": dispatch.id,
+        "published": dispatch.published.isoformat().replace("+00:00", "Z") if dispatch.published else None,
+        "headline": dispatch.headline,
+        "body": dispatch.body,
+    }
+
+
+def _dispatch_from_dict(data: dict) -> Dispatch | None:
+    if not isinstance(data, dict):
+        return None
+    published = data.get("published")
+    try:
+        stamp = datetime.fromisoformat(published.replace("Z", "+00:00")) if published else None
+    except (AttributeError, ValueError):
+        stamp = None
+    return Dispatch(
+        id=int(data.get("id", 0) or 0),
+        published=stamp,
+        headline=data.get("headline") or None,
+        body=str(data.get("body") or ""),
+    )
+
+
+def load_dispatch() -> tuple[Dispatch | None, datetime | None]:
+    """Cached dispatch and when it was last fetched."""
+    if not config.DISPATCH_CACHE.exists():
+        return None, None
+    try:
+        payload = json.loads(config.DISPATCH_CACHE.read_text(encoding="utf-8"))
+        fetched_raw = payload.get("fetchedAt")
+        fetched = datetime.fromisoformat(fetched_raw.replace("Z", "+00:00")) if fetched_raw else None
+        return _dispatch_from_dict(payload.get("dispatch") or {}), fetched
+    except (OSError, ValueError, json.JSONDecodeError, AttributeError) as exc:
+        log.warning("could not read dispatch cache: %s", exc)
+        return None, None
+
+
+def save_dispatch(dispatch: Dispatch, fetched_at: datetime) -> None:
+    payload = {
+        "fetchedAt": fetched_at.isoformat().replace("+00:00", "Z"),
+        "dispatch": _dispatch_to_dict(dispatch),
+    }
+    temp = config.DISPATCH_CACHE.with_suffix(".tmp")
+    temp.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+    temp.replace(config.DISPATCH_CACHE)
+
+
+def resolve_dispatch(now: datetime) -> Dispatch | None:
+    """Return the newest dispatch, refetching only when the cache has aged out.
+
+    The feed is 372 KB and cannot be filtered server-side, while dispatches are
+    published two or three times a day - so it gets its own refresh interval
+    rather than riding the five-minute render cycle.
+    """
+    cached, fetched_at = load_dispatch()
+
+    if cached is not None and fetched_at is not None:
+        age_minutes = (now - fetched_at).total_seconds() / 60.0
+        if 0 <= age_minutes < config.DISPATCH_REFRESH_MINUTES:
+            log.debug("dispatch cache is %.1f minutes old; not refetching", age_minutes)
+            return cached
+
+    try:
+        dispatch = latest_dispatch(api.fetch_dispatches())
+    except api.ApiError as exc:
+        log.warning("dispatch feed unavailable: %s", exc)
+        return cached
+
+    if dispatch is None:
+        return cached
+
+    try:
+        save_dispatch(dispatch, now)
+    except OSError as exc:
+        log.debug("could not cache dispatch: %s", exc)
+    log.info("dispatch refreshed: %s", dispatch.headline or dispatch.body[:60])
+    return dispatch
+
+
 def save_snapshot(snapshot: WarSnapshot) -> None:
     payload = {
         "observedAt": snapshot.observed_at.isoformat().replace("+00:00", "Z"),
@@ -138,6 +221,7 @@ def save_snapshot(snapshot: WarSnapshot) -> None:
         "backgroundIndex": snapshot.background.index if snapshot.background else None,
         "planets": [_card_to_dict(card) for card in snapshot.planets],
         "majorOrder": None,
+        "dispatch": _dispatch_to_dict(snapshot.dispatch) if snapshot.dispatch else None,
     }
     if snapshot.major_order is not None:
         payload["majorOrder"] = {
@@ -205,6 +289,7 @@ def load_snapshot() -> WarSnapshot | None:
         active_campaigns=int(payload.get("activeCampaigns", 0)),
         observed_at=observed_at,
         background=background,
+        dispatch=_dispatch_from_dict(payload.get("dispatch") or {}) if payload.get("dispatch") else None,
     )
 
 
@@ -243,6 +328,13 @@ def build_snapshot() -> WarSnapshot:
     history.previous_top_index = background.index if background else None
     history.save()
 
+    # Throttled and cached; a failure here must not take the cycle down.
+    try:
+        dispatch = resolve_dispatch(server_time)
+    except Exception:  # noqa: BLE001 - the dispatch is decoration, not data
+        log.exception("dispatch resolution failed; continuing without it")
+        dispatch = None
+
     return WarSnapshot(
         planets=top,
         major_order=major_order,
@@ -250,6 +342,7 @@ def build_snapshot() -> WarSnapshot:
         active_campaigns=len(cards),
         observed_at=server_time,
         background=background,
+        dispatch=dispatch,
     )
 
 
@@ -259,13 +352,14 @@ def render_all(
     now = datetime.now(timezone.utc)
     written: dict[int, Path] = {}
 
-    # Monitors of identical size share a render.
-    cache: dict[tuple[int, int], "object"] = {}
+    # Monitors sharing both a size and a taskbar layout share a render.
+    cache: dict[tuple, "object"] = {}
     for monitor in monitors:
-        image = cache.get(monitor.size)
+        key = (monitor.size, monitor.insets)
+        image = cache.get(key)
         if image is None:
-            image = render.render_monitor(snapshot, monitor.size, now)
-            cache[monitor.size] = image
+            image = render.render_monitor(snapshot, monitor.size, now, monitor.insets)
+            cache[key] = image
 
         if output_dir is not None:
             path = output_dir / f"preview_mon{monitor.index}_{monitor.width}x{monitor.height}.png"
@@ -341,6 +435,15 @@ def describe(snapshot: WarSnapshot) -> str:
     background = snapshot.background_planet
     if background:
         lines.append(f"Backdrop    : {background.name} — {background.biome_name}")
+
+    if snapshot.dispatch is None:
+        lines.append("Dispatch    : none")
+    else:
+        dispatch = snapshot.dispatch
+        age = dispatch.age(now)
+        lines.append(f"Dispatch    : [{dispatch.id}] {dispatch.headline or '(no headline)'} — {age}")
+        body = dispatch.body.replace("\n", " ")
+        lines.append(f"              {body[:150]}{'…' if len(body) > 150 else ''}")
 
     if snapshot.major_order is None:
         lines.append("Major Order : none active")

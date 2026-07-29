@@ -3,20 +3,22 @@
 Renders the galactic war as your Windows desktop wallpaper, refreshed every five
 minutes from the [community Helldivers 2 API](https://github.com/helldivers-2/api).
 
-A vertical panel on the right of each monitor shows the six busiest planets with
-their ownership, liberation or defence progress, and rate of change. Behind it
-sits a backdrop themed to the biome of the planet with the most Helldivers on it.
+A vertical panel on the right of each monitor shows the four busiest planets with
+their ownership, liberation or defence progress, and rate of change, alongside
+the current Major Order and the latest High Command dispatch. Behind it sits a
+backdrop themed to the biome of the planet with the most Helldivers on it.
 
 ## What it shows
 
-- **Top 6 planets by player count**, drawn from the active campaigns.
+- **Top 4 planets by player count**, drawn from the active campaigns.
 - **Ownership tag** in the owning faction's colour: Super Earth blue, Terminids
   yellow, Automatons red, Illuminate purple.
 - **Progress bars.** Liberation and Super Earth defence progress are always blue.
   When a campaign is on a timer, a second bar in the opposing faction's colour
   tracks how much of the window has burned.
 - **Rates** in percent per hour for both bars.
-- **Major Order** progress as objectives completed, when one is active.
+- **Major Order** objectives as tick boxes, with a count on counter objectives.
+- **Latest High Command dispatch**, with the game's markup stripped.
 
 ### The three campaign states
 
@@ -108,7 +110,9 @@ Everything tunable lives in `hd2tracker/config.py`:
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `PLANET_COUNT` | 6 | planets shown |
+| `PLANET_COUNT` | 4 | planets shown |
+| `DISPATCH_REFRESH_MINUTES` | 15 | how often the dispatch feed is refetched |
+| `DISPATCH_BODY_LINES` | 4 | wrapped lines of dispatch body shown |
 | `HISTORY_WINDOW_MINUTES` | 90 | window for the rate fit |
 | `RATE_MIN_SPAN_MINUTES` | 10 | minimum history before a rate is shown |
 | `BACKGROUND_HYSTERESIS` | `True` | stops the backdrop flip-flopping between two close planets |
@@ -140,6 +144,11 @@ Put your contact on the first non-comment line. With neither the file nor the va
 
 - **Two API requests per cycle** (2 requests every 5 minutes) against a 5-request/10-second limit. The planet
   name list is fetched at most weekly, and only when a Major Order is active.
+- **The dispatch feed is fetched on its own 15-minute throttle**, cached to disk
+  in between. It returns every dispatch ever published as a single 372 KB
+  response and ignores `limit`/`page`/`count`, while new dispatches appear only
+  two or three times a day — so polling it every cycle would be wasteful. All
+  requests ask for gzip, which roughly halves it.
 - **Rates need warm-up.** Expect `—` for the first 10-15 minutes; that is
   deliberate, rather than showing a fabricated `0.00`.
 - **The clock comes from the HTTP `Date` header.** The `now` field on
@@ -159,6 +168,7 @@ Written to `.state/` inside the repo, which is git-ignored:
 | `hd2_mon{n}_{a,b}.png` | rendered wallpapers |
 | `history.json` | rolling samples for the rate fit |
 | `last_snapshot.json` | last good state, for the stale fallback |
+| `dispatch.json` | latest dispatch and when it was fetched |
 | `wallpaper_backup.json` | your original wallpaper, captured once |
 | `biome_cache/` | generated backdrops |
 | `tracker.log` | rotating log |

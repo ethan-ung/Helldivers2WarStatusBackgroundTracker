@@ -30,10 +30,20 @@ class Monitor:
     height: int
     left: int
     top: int
+    # Edges the shell reserves - the taskbar, mainly. The wallpaper still covers
+    # the whole monitor; only the panel is laid out inside what is left.
+    inset_left: int = 0
+    inset_top: int = 0
+    inset_right: int = 0
+    inset_bottom: int = 0
 
     @property
     def size(self) -> tuple[int, int]:
         return (self.width, self.height)
+
+    @property
+    def insets(self) -> tuple[int, int, int, int]:
+        return (self.inset_left, self.inset_top, self.inset_right, self.inset_bottom)
 
 
 def _run_shim(args: list[str]) -> str:
@@ -89,6 +99,10 @@ def list_monitors() -> list[Monitor]:
             height=int(entry["height"]),
             left=int(entry.get("left", 0)),
             top=int(entry.get("top", 0)),
+            inset_left=max(0, int(entry.get("insetLeft", 0))),
+            inset_top=max(0, int(entry.get("insetTop", 0))),
+            inset_right=max(0, int(entry.get("insetRight", 0))),
+            inset_bottom=max(0, int(entry.get("insetBottom", 0))),
         )
         for entry in payload
         if int(entry.get("width", 0)) > 0 and int(entry.get("height", 0)) > 0

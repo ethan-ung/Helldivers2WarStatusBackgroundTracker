@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import enum
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -87,6 +88,16 @@ class PlanetCard:
         return f"{minutes}m"
 
 
+def _compact(value: int) -> str:
+    """Shorten large counts so they fit beside an objective."""
+    if value >= 1_000_000:
+        text = f"{value / 1_000_000:.1f}M"
+        return text.replace(".0M", "M")
+    if value >= 10_000:
+        return f"{value / 1_000:.0f}K"
+    return f"{value:,}"
+
+
 @dataclass
 class MajorOrderTask:
     label: str
@@ -102,6 +113,18 @@ class MajorOrderTask:
         if self.goal <= 0:
             return 0.0
         return max(0.0, min(1.0, self.current / self.goal))
+
+    @property
+    def display_progress(self) -> str | None:
+        """Plain-text count for a counter objective, ``None`` for a binary one.
+
+        Hold and liberate objectives are succeed-or-not, so their tick box says
+        everything. A counter that runs for a week would otherwise sit as an
+        empty box the whole time, which is why the figure is shown alongside it.
+        """
+        if self.goal <= 1:
+            return None
+        return f"{_compact(self.current)} / {_compact(self.goal)}"
 
 
 @dataclass
@@ -149,6 +172,83 @@ class MajorOrder:
         return f"{minutes}m"
 
 
+# Dispatch text carries the game's own markup: <i=3> around the headline, <i=1>
+# around emphasised names, plus a fair amount of malformed output - </I>, </>,
+# </i=3> and at least one unclosed <i=1SANGIS</i>.
+_DISPATCH_HEADLINE = re.compile(r"^\s*<i=3>([\s\S]*?)</i(?:=3)?>", re.IGNORECASE)
+# Deliberately [^<>] rather than [^>]: an unclosed tag would otherwise swallow
+# everything up to the next '>', taking real words with it.
+_DISPATCH_TAG = re.compile(r"<[^<>]*>")
+_DISPATCH_FRAGMENT = re.compile(r"</?[iI][^<>]*")
+_DISPATCH_SPACES = re.compile(r"[ \t]+")
+_DISPATCH_BLANKS = re.compile(r"\n{2,}")
+
+
+@dataclass
+class Dispatch:
+    """A High Command dispatch, with the game's markup removed."""
+
+    id: int
+    published: datetime | None
+    headline: str | None
+    body: str
+
+    def age(self, now: datetime) -> str:
+        if self.published is None:
+            return ""
+        seconds = (now - self.published).total_seconds()
+        if seconds < 60:
+            return "just now"
+        minutes = int(seconds // 60)
+        if minutes < 60:
+            return f"{minutes}m ago"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours}h ago"
+        return f"{hours // 24}d ago"
+
+
+def _strip_markup(text: str) -> str:
+    return _DISPATCH_FRAGMENT.sub("", _DISPATCH_TAG.sub("", text))
+
+
+def parse_dispatch(raw: dict) -> Dispatch | None:
+    if not isinstance(raw, dict):
+        return None
+
+    message = raw.get("message")
+    message = message.replace("\r", "") if isinstance(message, str) else ""
+
+    headline = None
+    match = _DISPATCH_HEADLINE.match(message)
+    if match:
+        headline = _strip_markup(match.group(1)).strip() or None
+        message = message[match.end() :]
+
+    body = _strip_markup(message)
+    body = _DISPATCH_BLANKS.sub("\n", _DISPATCH_SPACES.sub(" ", body)).strip()
+
+    if not headline and not body:
+        return None
+
+    raw_id = raw.get("id")
+    return Dispatch(
+        id=raw_id if isinstance(raw_id, int) else 0,
+        published=_parse_time(raw.get("published")),
+        headline=headline,
+        body=body,
+    )
+
+
+def latest_dispatch(raw_list: list[dict]) -> Dispatch | None:
+    """Newest usable dispatch. The feed arrives newest-first, but sort anyway."""
+    parsed = [d for d in (parse_dispatch(raw) for raw in raw_list or []) if d is not None]
+    if not parsed:
+        return None
+    epoch = datetime.min.replace(tzinfo=timezone.utc)
+    return max(parsed, key=lambda d: (d.published or epoch, d.id))
+
+
 @dataclass
 class WarSnapshot:
     planets: list[PlanetCard]
@@ -160,6 +260,7 @@ class WarSnapshot:
     # Chosen with hysteresis, so it can differ from planets[0] when two planets
     # are trading the top slot.
     background: PlanetCard | None = None
+    dispatch: Dispatch | None = None
 
     @property
     def background_planet(self) -> PlanetCard | None:
@@ -432,6 +533,11 @@ def _decode_task_label(task: dict, planet_names: dict[int, str]) -> str:
         return f"Kill {goal:,} {target}"
     if task_type == 2:
         return f"Extract {goal:,} items"
+    # Unverified: no live order has exercised this type, and the API documents
+    # these fields as "purpose unknown". A wrong guess still reads sensibly, and
+    # anything unrecognised falls through to the generic label below.
+    if task_type == 9:
+        return f"Complete {goal:,} Operations"
     if task_type == 15:
         return "Hold the front line"
     return f"Objective ({goal:,})"
